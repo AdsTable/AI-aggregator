@@ -1,9 +1,9 @@
 version: "3.9"
 
 services:
-  ai-aggregator:
+  ai_aggregator:
     build: .
-    container_name: ai-aggregator
+    container_name: ai_aggregator
     ports:
       - "8501:8501"
     env_file:

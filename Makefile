@@ -1,4 +1,4 @@
-PROJECT_NAME=ai-aggregator
+PROJECT_NAME=ai_aggregator
 IMAGE_NAME=$(PROJECT_NAME):latest
 CONTAINER_NAME=$(PROJECT_NAME)
 
@@ -60,7 +60,7 @@ install: check-env
 	pip install -r requirements.txt
 
 local: check-env
-	streamlit run ai-aggregator-fixed.py
+	streamlit run ai_aggregator.py
 
 format:
 	black .

@@ -21,11 +21,21 @@ It fetches, parses, embeds, and summarizes data using OpenAI, FAISS, and Streaml
 1. Clone repo
    ```bash
    git clone https://github.com/your/repo.git
-   cd ai-aggregator
+   cd ai_aggregator
 
 cp .env.example .env
 # edit .env and add your OPENAI_API_KEY
 
+pip install -r requirements.txt
+
+streamlit run ai_aggregator.py --server.headless=True
+
+## 🚀 Запуск тестов
+
+pytest -v
+
+
+# for Linux 
 make install
 
 make local
@@ -43,13 +53,14 @@ make up
 
 ## 🛠 Development
 
-# Format code:
+## Format code:
 make format
 
-# Lint code:
+## Lint code:
 make lint
 
-# Logs:
+## Logs:
 make logs
 
-
+## 🚀 Запуск тестов
+make test

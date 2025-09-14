@@ -20,7 +20,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
-COPY ai-aggregator-fixed.py .
+COPY ai_aggregator-fixed.py .
 
 # Create necessary directories
 RUN mkdir -p /app/cache /app/logs
@@ -29,4 +29,4 @@ RUN mkdir -p /app/cache /app/logs
 EXPOSE 8501
 
 # Entrypoint
-CMD ["streamlit", "run", "ai-aggregator-fixed.py", "--server.port=8501", "--server.address=0.0.0.0"]
+CMD ["streamlit", "run", "ai_aggregator-fixed.py", "--server.port=8501", "--server.address=0.0.0.0"]
