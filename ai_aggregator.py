@@ -1,13 +1,6 @@
 """
 AI Aggregator - Complete production-ready prototype with enhanced multi-provider support.
-
-Features:
- - Multi-AI provider support (OpenAI, Gemini, DeepSeek, Claude, Groq) 
- - Enhanced table extraction and fuzzy search
- - FAISS vector search with caching
- - Multiple web scraping methods
- - Advanced company search and review system
- - Streamlit UI with comprehensive provider selection
+Enhanced for Norwegian electricity price extraction with improved data parsing.
 """
 
 import os
@@ -241,68 +234,6 @@ def get_provider_by_name(name: str) -> AIProvider:
         return GroqProvider(config.GROQ_API_KEY)
     return MockProviderBase(f"{name}")
 
-# -------------------- ENHANCED SEARCH ENGINE --------------------
-class EnhancedSearchEngine:
-    def __init__(self):
-        self.search_index = {}
-        self.company_data = []
-    
-    def add_company_data(self, companies: list):
-        self.company_data.extend(companies)
-        self._build_search_index()
-    
-    def _build_search_index(self):
-        for company in self.company_data:
-            name = company.get('name', '').lower()
-            industry = company.get('industry', '').lower()
-            rating = str(company.get('rating', ''))
-            
-            searchable_text = f"{name} {industry} {rating}"
-            self.search_index[company.get('id', len(self.search_index))] = {
-                'text': searchable_text,
-                'company': company
-            }
-    
-    def fuzzy_search(self, query: str, threshold: float = 0.6) -> list:
-        query = query.lower()
-        results = []
-        
-        for idx, data in self.search_index.items():
-            similarity = difflib.SequenceMatcher(None, query, data['text']).ratio()
-            
-            if similarity >= threshold:
-                result = data['company'].copy()
-                result['search_score'] = similarity
-                result['highlighted_name'] = self._highlight_match(
-                    data['company'].get('name', ''), query
-                )
-                results.append(result)
-        
-        return sorted(results, key=lambda x: x['search_score'], reverse=True)
-    
-    def _highlight_match(self, text: str, query: str) -> str:
-        pattern = re.compile(re.escape(query), re.IGNORECASE)
-        return pattern.sub(f"**{query}**", text)
-    
-    def advanced_search(self, query: str, filters: dict = None) -> dict:
-        results = self.fuzzy_search(query)
-        
-        if filters:
-            if 'industry' in filters:
-                results = [r for r in results if filters['industry'].lower() in r.get('industry', '').lower()]
-            if 'min_rating' in filters:
-                results = [r for r in results if r.get('rating', 0) >= filters['min_rating']]
-        
-        # Group by industry
-        grouped_results = {}
-        for result in results:
-            industry = result.get('industry', 'Other')
-            if industry not in grouped_results:
-                grouped_results[industry] = []
-            grouped_results[industry].append(result)
-        
-        return grouped_results
-
 # -------------------- CACHE FUNCTIONS --------------------
 def cache_key(query: str) -> str:
     return hashlib.sha256(query.encode("utf-8")).hexdigest()
@@ -356,7 +287,7 @@ def fetch_firecrawl_enhanced(url: str) -> str:
                 {
                     "url": url,
                     "formats": ["html"],
-                    "includeTags": ["table", "tr", "td", "th", "div"],
+                    "includeTags": ["table", "tr", "td", "th", "div", "span", "p"],
                     "waitFor": 5000
                 },
                 {"url": url}
@@ -457,36 +388,112 @@ def multi_search(query: str, region: str = "no") -> list:
     combined = list(dict.fromkeys(bing_links + google_links))
     return combined[:config.MAX_RESULTS]
 
-# -------------------- ENHANCED TABLE EXTRACTION --------------------
-def extract_tables_comprehensive(html: str) -> dict:
-    """Comprehensive table extraction from HTML with multiple strategies"""
+# -------------------- ENHANCED NORWEGIAN ELECTRICITY PRICE EXTRACTOR --------------------
+def extract_norwegian_electricity_data_comprehensive(html: str) -> dict:
+    """Ultra-comprehensive extractor specifically designed for Norwegian electricity sites"""
     if not html:
-        return {"tables": [], "debug": "No HTML content"}
+        return {"tables": [], "prices": [], "text_prices": [], "debug": "No HTML content"}
     
     soup = BeautifulSoup(html, "html.parser")
-    all_tables = []
+    all_data = []
+    all_prices = []
+    text_prices = []
     
-    # Strategy 1: Traditional HTML tables
-    html_tables = soup.find_all("table")
-    logger.info(f"Found {len(html_tables)} HTML tables")
+    # Get full text for analysis
+    full_text = soup.get_text()
     
-    for i, table in enumerate(html_tables):
+    # Strategy 1: Norwegian provider recognition (case-insensitive)
+    norwegian_providers = [
+        "agva kraft", "austevoll kraft", "bodø energi", "bærum energi", "cheap energy", "dalane energi", 
+        "dragefossen", "drangedal kraft", "eidefoss", "eiker energi", "eletra", "fitjar kraftlag", 
+        "fjordkraft", "folkekraft", "fortum", "fosenkraft energi", "gudbrandsdal energi", 
+        "hardanger energi", "haugaland kraft", "helgeland kraft strøm", "hurum kraft", "husleiestrøm", 
+        "ishavskraft", "istad kraft", "jærkraft", "kilden kraft", "klarkraft", "kraftriket", 
+        "kragerø kraft", "kvam kraftverk", "luster energi", "lyse", "midt energi", "motkraft", 
+        "neas", "nte", "notodden energi", "polar kraft", "rauland kraft", "rauma energi", 
+        "ren røros strøm", "rissa kraftlag", "saga energi", "skandiaenergi", "smart energi", 
+        "sodvin energi", "strøyma kraft", "sunndal energi", "svorka energi", "telemark kraft", 
+        "tibber", "tinn energi", "trøndelagskraft", "ustekveikja energi", "vokks kraft", 
+        "varanger kraftmarked", "vest-telemark kraftlag", "vev romerike strøm", "vibb", 
+        "viddakraft", "voss energi", "wattn", "å strøm", "hafslund", "elvia", "tensio", 
+        "komplett", "nordpool", "otovo", "eidsiva", "bkk", "trønder", "vardar"
+    ]
+    
+    found_providers = []
+    for provider in norwegian_providers:
+        if provider in full_text.lower():
+            found_providers.append(provider)
+    
+    # Strategy 2: Ultra-comprehensive price pattern extraction
+    price_patterns = [
+        # Provider with specific prices - simplified pattern
+        r'(tibber|fjordkraft|hafslund|lyse|agder|elvia|tensio|komplett|nordpool|otovo|eidsiva|bkk|trønder|vardar|fortum|polar kraft|saga energi|cheap energy|wattn|vibb)[^0-9]*?(\d+[.,]\d*)\s*(?:kr|øre)',
+        
+        # Monthly prices
+        r'(\w+(?:\s+\w+)*)\s*[:\-]?\s*(\d+[.,]\d*)\s*kr[^0-9]*?(?:mnd|måned|per måned|månedlig|abonnement)',
+        r'månedspris[:\s]*(\d+[.,]\d*)\s*kr',
+        r'månedsabonnement[:\s]*(\d+[.,]\d*)\s*kr',
+        r'abonnement[:\s]*(\d+[.,]\d*)\s*kr',
+        
+        # kWh prices  
+        r'(\w+(?:\s+\w+)*)\s*[:\-]?\s*(\d+[.,]\d*)\s*øre[^0-9]*?(?:kwh|kWh)',
+        r'spotpris[:\s]*(\d+[.,]\d*)\s*øre',
+        r'fastpris[:\s]*(\d+[.,]\d*)\s*øre',
+        r'påslag[:\s]*(\d+[.,]\d*)\s*øre',
+        r'strømpris[:\s]*(\d+[.,]\d*)\s*øre',
+        
+        # General price patterns
+        r'(\w+(?:\s+\w+)*)\s+(\d+[.,]\d*)\s*kr',
+        r'(\w+(?:\s+\w+)*)\s+(\d+[.,]\d*)\s*øre',
+        r'pris[:\s]*(\d+[.,]\d*)\s*(?:kr|øre)',
+        
+        # Table-like structured data
+        r'(\w+(?:\s+\w+)*)\s+(\d+[.,]\d*)\s+(\d+[.,]\d*)',  # Provider Price1 Price2
+        r'(\w+(?:\s+\w+)*)\s+(\d+[.,]\d*)\s*kr\s+(\d+[.,]\d*)\s*øre',  # Provider XX kr YY øre
+        
+        # Spot price specific
+        r'(\w+(?:\s+\w+)*)\s*spot[^0-9]*?(\d+[.,]\d*)',
+        r'(\w+(?:\s+\w+)*)\s*fast[^0-9]*?(\d+[.,]\d*)',
+        
+        # Numbers followed by currency
+        r'(\d+[.,]\d*)\s*kr.*?(?:måned|mnd)',
+        r'(\d+[.,]\d*)\s*øre.*?(?:kwh|kWh)',
+        
+        # More general patterns
+        r'([A-ZÆØÅ][a-zæøå]+(?:\s+[A-ZÆØÅ][a-zæøå]+)*)\s*[:.]?\s*(\d+[.,]\d*)\s*kr',
+        r'([A-ZÆØÅ][a-zæøå]+(?:\s+[A-ZÆØÅ][a-zæøå]+)*)\s*[:.]?\s*(\d+[.,]\d*)\s*øre',
+    ]
+    
+    for pattern in price_patterns:
+        try:
+            matches = re.findall(pattern, full_text, re.IGNORECASE | re.MULTILINE)
+            for match in matches:
+                if isinstance(match, tuple) and len(match) >= 1:
+                    all_prices.append({
+                        "type": "regex_match",
+                        "data": list(match),
+                        "pattern": pattern[:50] + "..."
+                    })
+        except re.error as e:
+            logger.warning(f"Regex pattern error: {e}")
+            continue
+    
+    # Strategy 3: Enhanced HTML table extraction
+    tables = soup.find_all("table")
+    for i, table in enumerate(tables):
         table_data = {"type": "html_table", "headers": [], "rows": []}
         
         # Extract headers
+        header_row = table.find("tr")
         headers = []
-        for header_row in table.find_all("tr")[:3]:  # Check first 3 rows for headers
+        if header_row:
             header_cells = header_row.find_all(["th", "td"])
             if header_cells:
-                potential_headers = [cell.get_text(strip=True) for cell in header_cells]
-                # If this looks like headers (short text, no numbers)
-                if all(len(h) < 50 and not re.search(r'\d+[.,]\d+', h) for h in potential_headers if h):
-                    headers = potential_headers
-                    break
+                headers = [cell.get_text(strip=True) for cell in header_cells]
         
         table_data["headers"] = headers
         
-        # Extract rows
+        # Extract all rows
         rows = []
         all_rows = table.find_all("tr")
         start_row = 1 if headers else 0
@@ -495,88 +502,100 @@ def extract_tables_comprehensive(html: str) -> dict:
             cells = row.find_all(["td", "th"])
             if cells:
                 row_data = [cell.get_text(strip=True) for cell in cells]
-                if any(cell for cell in row_data):  # At least one non-empty cell
-                    if headers:
-                        row_dict = dict(zip(headers, row_data))
+                if any(cell for cell in row_data):
+                    # Check if row contains price data
+                    row_text = " ".join(row_data).lower()
+                    if any(word in row_text for word in ["kr", "øre", "pris", "mnd", "spot", "fast"]):
+                        rows.append({"data": row_data, "contains_prices": True})
                     else:
-                        row_dict = {"data": row_data}
-                    rows.append(row_dict)
+                        rows.append({"data": row_data, "contains_prices": False})
         
         if rows:
             table_data["rows"] = rows
-            all_tables.append(table_data)
-            logger.info(f"Extracted HTML table {i+1} with {len(rows)} rows")
+            # Count price-containing rows
+            price_rows = sum(1 for row in rows if row.get("contains_prices", False))
+            table_data["price_row_count"] = price_rows
+            all_data.append(table_data)
     
-    # Strategy 2: Div-based grid structures
-    grid_containers = soup.find_all("div", class_=re.compile(r"table|grid|list|data|row", re.I))
-    logger.info(f"Found {len(grid_containers)} potential grid containers")
+    # Strategy 4: Structured sections and divs
+    price_sections = soup.find_all(["div", "section", "article"], 
+                                   class_=re.compile(r"price|pris|tilbud|sammenlign|compare|offer|tariff|plan", re.I))
     
-    for container in grid_containers:
-        rows = []
-        # Look for repeated div patterns
-        items = container.find_all("div", class_=re.compile(r"row|item|entry|cell", re.I))
+    for section in price_sections:
+        section_text = section.get_text()
         
-        if len(items) >= 3:  # At least 3 items to consider as table
-            for item in items[:50]:  # Limit to 50 items
-                # Extract text from various child elements
-                text_elements = []
-                for elem in item.find_all(["span", "div", "p", "strong", "a"]):
-                    text = elem.get_text(strip=True)
-                    if text and len(text) < 200:
-                        text_elements.append(text)
-                
-                if len(text_elements) >= 2:  # At least 2 data points
-                    rows.append({"data": text_elements})
-            
-            if len(rows) >= 3:
-                all_tables.append({"type": "div_grid", "rows": rows})
-                logger.info(f"Extracted div-grid with {len(rows)} rows")
+        # Look for price patterns in this section
+        for pattern in price_patterns[:5]:  # Use top 5 patterns
+            try:
+                matches = re.findall(pattern, section_text, re.IGNORECASE)
+                for match in matches:
+                    if isinstance(match, tuple) and len(match) >= 1:
+                        all_prices.append({
+                            "type": "section_match",
+                            "data": list(match),
+                            "section_class": section.get("class", [])
+                        })
+            except re.error:
+                continue
     
-    # Strategy 3: Look for structured data patterns (e.g., JSON-LD)
+    # Strategy 5: Text-based price extraction (line by line)
+    lines = full_text.split('\n')
+    for line in lines:
+        line = line.strip()
+        if len(line) < 5 or len(line) > 200:  # Skip very short or very long lines
+            continue
+        
+        # Look for price mentions
+        if any(word in line.lower() for word in ["kr", "øre", "pris"]):
+            # Extract any numbers followed by kr or øre
+            price_matches = re.findall(r'(\d+[.,]\d*)\s*(?:kr|øre)', line, re.I)
+            if price_matches:
+                # Try to find provider name in the same line
+                provider_match = None
+                for provider in norwegian_providers:
+                    if provider in line.lower():
+                        provider_match = provider
+                        break
+                
+                if not provider_match:
+                    # Try to extract any capitalized word as potential provider
+                    words = line.split()
+                    for word in words:
+                        if word and word[0].isupper() and len(word) > 3:
+                            provider_match = word
+                            break
+                
+                text_prices.append({
+                    "type": "text_line",
+                    "line": line,
+                    "prices": price_matches,
+                    "provider": provider_match
+                })
+    
+    # Strategy 6: JSON-LD structured data
     scripts = soup.find_all("script", type="application/ld+json")
+    structured_data = []
     for script in scripts:
         try:
-            data = json.loads(script.string)
-            if isinstance(data, dict) and any(key in data for key in ["itemListElement", "hasOfferCatalog", "offers"]):
-                # Convert structured data to table format
-                structured_rows = []
-                if "itemListElement" in data:
-                    for item in data["itemListElement"]:
-                        if isinstance(item, dict):
-                            structured_rows.append({"data": [str(v) for v in item.values() if v]})
-                if structured_rows:
-                    all_tables.append({"type": "json_ld", "rows": structured_rows})
-                    logger.info(f"Extracted JSON-LD with {len(structured_rows)} items")
+            if script.string:
+                data = json.loads(script.string)
+                if isinstance(data, dict) and ("offers" in data or "priceRange" in data or "price" in data):
+                    structured_data.append(data)
         except:
             continue
     
-    # Strategy 4: Text pattern extraction for Norwegian electricity prices
-    text_content = soup.get_text()
-    price_patterns = [
-        r"(\w+(?:\s+\w+)*)\s*[:\-]\s*(\d+[.,]\d*)\s*(?:kr|øre)(?:/mnd|/kWh)?",  # Provider: 123.45 kr/mnd
-        r"(\w+(?:\s+\w+)*)\s+(\d+[.,]\d*)\s*kr.*?(\d+[.,]\d*)\s*øre",  # Provider 123 kr ... 45 øre
-        r"Tilbyder[:\s]*(\w+(?:\s+\w+)*)\s+.*?(\d+[.,]\d*)",  # Tilbyder: Provider ... 123.45
-    ]
-    
-    pattern_matches = []
-    for pattern in price_patterns:
-        matches = re.findall(pattern, text_content, re.IGNORECASE | re.MULTILINE)
-        for match in matches[:20]:  # Limit matches
-            if isinstance(match, tuple) and len(match) >= 2:
-                pattern_matches.append({"data": list(match)})
-    
-    if pattern_matches:
-        all_tables.append({"type": "pattern_extraction", "rows": pattern_matches})
-        logger.info(f"Extracted {len(pattern_matches)} price patterns")
-    
     return {
-        "tables": all_tables,
-        "debug": f"Found {len(all_tables)} table structures: {len(html_tables)} HTML tables, {len(grid_containers)} grids, {len(scripts)} JSON-LD, {len(pattern_matches)} patterns"
+        "tables": all_data,
+        "prices": all_prices,
+        "text_prices": text_prices,
+        "found_providers": found_providers,
+        "structured_data": structured_data,
+        "debug": f"Found {len(all_data)} tables, {len(all_prices)} price patterns, {len(text_prices)} text prices, {len(found_providers)} providers, {len(structured_data)} structured data"
     }
 
 # -------------------- AI PROCESSING (SYNC) --------------------
 def run_async(coro):
-    """Helper to run async functions in sync context (like in v1)"""
+    """Helper to run async functions in sync context"""
     try:
         loop = asyncio.get_event_loop()
         if loop.is_running():
@@ -586,87 +605,156 @@ def run_async(coro):
     except RuntimeError:
         return asyncio.run(coro)
 
-def extract_structured_data_ai(query: str, html: str, provider: AIProvider) -> list:
-    """Extract structured data using AI with comprehensive table extraction (SYNC VERSION)"""
-    extracted = extract_tables_comprehensive(html)
-    tables = extracted["tables"]
+def extract_structured_data_ai_enhanced(query: str, html: str, provider: AIProvider) -> list:
+    """Enhanced AI extraction with comprehensive data preprocessing"""
     
-    if not tables:
-        # If no tables found, try direct text extraction
-        soup = BeautifulSoup(html, "html.parser")
-        text_content = soup.get_text()[:5000]  # First 5000 chars
-        
-        prompt = f"""
-Analyze this webpage text for Norwegian electricity/energy price information:
+    # Use comprehensive Norwegian electricity extractor
+    extracted = extract_norwegian_electricity_data_comprehensive(html)
+    tables = extracted["tables"]
+    prices = extracted["prices"]
+    text_prices = extracted["text_prices"]
+    found_providers = extracted["found_providers"]
+    structured_data = extracted["structured_data"]
+    
+    # Create sample of raw text focusing on price-related content
+    soup = BeautifulSoup(html, "html.parser")
+    full_text = soup.get_text()
+    
+    # Extract price-related paragraphs
+    price_paragraphs = []
+    for paragraph in full_text.split('\n'):
+        paragraph = paragraph.strip()
+        if paragraph and any(word in paragraph.lower() for word in ["kr", "øre", "pris", "spot", "fast", "måned", "mnd", "abonnement"]):
+            price_paragraphs.append(paragraph)
+    
+    # Enhanced prompt with more structured data
+    prompt = f"""
+Analyze this Norwegian electricity pricing data. Extract structured pricing information in JSON format.
 
-Query: {query}
-Text content: {text_content}
+QUERY: {query}
 
-Extract structured data in JSON format:
+FOUND PROVIDERS: {found_providers}
+
+EXTRACTED PRICE PATTERNS:
+{json.dumps(prices[:15], ensure_ascii=False, indent=2)}
+
+TEXT-BASED PRICES:
+{json.dumps(text_prices[:10], ensure_ascii=False, indent=2)}
+
+PRICE-RELATED PARAGRAPHS:
+{chr(10).join(price_paragraphs[:20])}
+
+EXTRACTED TABLES:
+{json.dumps([{{"type": t.get("type"), "headers": t.get("headers"), "price_rows": len([r for r in t.get("rows", []) if r.get("contains_prices")])}} for t in tables], ensure_ascii=False, indent=2)}
+
+Based on this data, extract Norwegian electricity pricing information in this EXACT JSON format:
 [
   {{
-    "provider": "company name",
-    "price_monthly": "monthly price if available", 
-    "price_kwh": "price per kWh if available",
-    "contract_type": "contract type",
-    "binding_period": "binding period",
-    "additional_info": "any other relevant info"
+    "provider": "company name (e.g., Tibber, Fjordkraft, Agva Kraft)",
+    "price_monthly": "monthly price in NOK (e.g., '29 kr', '39 kr')",
+    "price_kwh": "price per kWh in øre (e.g., '95.5 øre', '105 øre')",
+    "påslag": "påslag per kWh in øre (e.g., '- 0.5 øre', '1 øre')",
+    "contract_type": "spot/fixed/variable",
+    "binding_period": "binding period (e.g., 'ingen', '12 måneder')",
+    "additional_info": "any additional conditions or notes"
   }}
 ]
 
-If no structured pricing data found, return: [{{"error": "No structured pricing data found in content"}}]
-"""
-    else:
-        # Use extracted tables
-        prompt = f"""
-Analyze these extracted tables for Norwegian electricity pricing information:
+IMPORTANT INSTRUCTIONS:
+1. Look for ANY price information, even if incomplete
+2. Extract provider names from the found_providers list or price patterns
+3. If you find monthly prices (kr/mnd), extract them
+4. If you find kWh prices (øre/kWh), extract them
+5. Even partial information is valuable
+6. If you find pricing data, return it - don't be too strict
 
-Query: {query}
-Extracted tables: {json.dumps(tables, ensure_ascii=False)[:8000]}
-
-Extract structured pricing data in JSON format:
-[
-  {{
-    "provider": "provider/company name",
-    "price_monthly": "monthly price in NOK", 
-    "price_kwh": "price per kWh in øre",
-    "contract_type": "spot/fixed price type",
-    "binding_period": "binding time period",
-    "consumption": "yearly consumption kWh",
-    "payment_method": "billing method",
-    "additional_conditions": "other conditions"
-  }}
-]
-
-Focus on offers matching: 16000 kWh/year, spot prices, no binding period, post-payment billing.
-If no relevant data found, return: [{{"error": "No relevant electricity pricing data found"}}]
+If you cannot find ANY pricing information at all, return:
+[{{"error": "No electricity pricing data found", "analysis": "describe what you found instead"}}]
 """
     
     result_text = run_async(provider.chat(prompt))
     
     try:
+        # Clean up the response text
+        result_text = result_text.strip()
+        
+        # Try to find JSON in the response
+        json_matches = re.findall(r'\[.*?\]', result_text, re.DOTALL)
+        if json_matches:
+            for json_match in json_matches:
+                try:
+                    structured_json = json.loads(json_match)
+                    if isinstance(structured_json, list) and structured_json:
+                        return structured_json
+                except:
+                    continue
+        
+        # Try to parse the entire response as JSON
         structured_json = json.loads(result_text)
         if isinstance(structured_json, list):
             return structured_json
         else:
             return [structured_json]
+            
     except json.JSONDecodeError:
-        # Try to extract JSON from response text
-        json_match = re.search(r'\[.*\]', result_text, re.DOTALL)
-        if json_match:
-            try:
-                return json.loads(json_match.group())
-            except:
-                pass
+        # Enhanced fallback: try to create structured data from our extractions
+        logger.error(f"JSON parsing failed for response: {result_text[:500]}")
         
-        return [{"error": "AI output parsing failed", "raw": result_text[:1000]}]
+        # Fall back to our own extractions
+        fallback_results = []
+        
+        # Process price patterns
+        processed_providers = set()
+        for price_data in prices[:15]:
+            if price_data.get("type") == "regex_match" and len(price_data.get("data", [])) >= 2:
+                provider = price_data["data"][0].strip().title()
+                price_info = " ".join(price_data["data"][1:])
+                
+                if provider not in processed_providers:
+                    processed_providers.add(provider)
+                    fallback_results.append({
+                        "provider": provider,
+                        "price_info": price_info,
+                        "source": "pattern_extraction",
+                        "raw_data": price_data["data"]
+                    })
+        
+        # Process text prices
+        for text_price in text_prices[:10]:
+            provider = text_price.get("provider")
+            if provider and provider not in processed_providers:
+                processed_providers.add(provider)
+                fallback_results.append({
+                    "provider": provider.title(),
+                    "prices_found": text_price.get("prices", []),
+                    "source": "text_extraction",
+                    "line": text_price.get("line", "")[:100]
+                })
+        
+        if fallback_results:
+            return fallback_results
+        
+        return [{
+            "error": "AI response parsing failed", 
+            "raw_response": result_text[:1000], 
+            "extraction_debug": extracted["debug"],
+            "fallback_data": {
+                "providers_found": found_providers,
+                "price_patterns_count": len(prices),
+                "text_prices_count": len(text_prices)
+            }
+        }]
 
 # -------------------- FAISS MANAGER --------------------
 class FAISSManager:
     def __init__(self, dim=config.FAISS_DIM, index_path=config.FAISS_INDEX_PATH):
         self.dim = dim
         self.index_path = index_path
-        self.model = SentenceTransformer("all-MiniLM-L6-v2")
+        try:
+            self.model = SentenceTransformer("all-MiniLM-L6-v2")
+        except Exception as e:
+            logger.error(f"Failed to load SentenceTransformer: {e}")
+            self.model = None
         
         if self.index_path.exists():
             try:
@@ -692,43 +780,59 @@ class FAISSManager:
             json.dump(self.id_map, f, ensure_ascii=False)
     
     def add_documents(self, documents: list):
+        if not self.model:
+            return
+            
         for doc in documents:
             text = json.dumps(doc, ensure_ascii=False)
-            vec = self.model.encode([text])
-            self.index.add(np.array(vec, dtype='float32'))
-            self.id_map[str(len(self.id_map))] = text
+            try:
+                vec = self.model.encode([text])
+                self.index.add(np.array(vec, dtype='float32'))
+                self.id_map[str(len(self.id_map))] = text
+            except Exception as e:
+                logger.error(f"Error adding document to FAISS: {e}")
         
         self.save_index()
         self.save_id_map()
     
     def save_index(self):
-        faiss.write_index(self.index, str(self.index_path))
+        try:
+            faiss.write_index(self.index, str(self.index_path))
+        except Exception as e:
+            logger.error(f"Error saving FAISS index: {e}")
     
     def search(self, query: str, top_k=5):
-        if self.index.ntotal == 0:
+        if self.index.ntotal == 0 or not self.model:
             return []
         
-        vec = self.model.encode([query])
-        vec = np.array(vec, dtype='float32')
-        if vec.ndim == 1:
-            vec = vec.reshape(1, -1)
-        
-        D, I = self.index.search(vec, min(top_k, self.index.ntotal))
-        results = []
-        
-        for dist, idx in zip(D[0], I[0]):
-            if str(idx) in self.id_map:
-                try:
-                    doc = json.loads(self.id_map[str(idx)])
-                    results.append(doc)
-                except:
-                    continue
-        
-        return results
+        try:
+            vec = self.model.encode([query])
+            vec = np.array(vec, dtype='float32')
+            if vec.ndim == 1:
+                vec = vec.reshape(1, -1)
+            
+            D, I = self.index.search(vec, min(top_k, self.index.ntotal))
+            results = []
+            
+            for dist, idx in zip(D[0], I[0]):
+                if str(idx) in self.id_map:
+                    try:
+                        doc = json.loads(self.id_map[str(idx)])
+                        results.append(doc)
+                    except:
+                        continue
+            
+            return results
+        except Exception as e:
+            logger.error(f"Error searching FAISS: {e}")
+            return []
 
 # Initialize managers
-faiss_manager = FAISSManager()
-search_engine = EnhancedSearchEngine()
+try:
+    faiss_manager = FAISSManager()
+except Exception as e:
+    logger.error(f"Error initializing FAISS manager: {e}")
+    faiss_manager = None
 
 # -------------------- STREAMLIT UI --------------------
 def check_provider_availability():
@@ -742,8 +846,8 @@ def check_provider_availability():
     return providers
 
 def main():
-    st.set_page_config(page_title="AI Aggregator Complete", page_icon="🤖", layout="wide")
-    st.title("🤖 AI Aggregator - Complete Edition")
+    st.set_page_config(page_title="AI Aggregator - Norwegian Electricity", page_icon="⚡", layout="wide")
+    st.title("⚡ AI Aggregator - Enhanced Norwegian Electricity Price Analyzer")
     
     # Sidebar with API status
     st.sidebar.header("🔑 API Key Status")
@@ -754,202 +858,156 @@ def main():
         st.sidebar.write(f"{name}: {status}")
     
     # Main tabs
-    tab1, tab2, tab3, tab4 = st.tabs(["🔍 Smart Search", "⚡ Power Prices", "🏢 Company Search", "📊 FAISS Search"])
+    tab1, tab2 = st.tabs(["⚡ Enhanced Power Prices", "📊 FAISS Search"])
     
     with tab1:
-        st.header("🔍 Smart Search & AI Processing")
+        st.header("⚡ Enhanced Norwegian Power Price Analyzer")
         
-        # Provider selection
-        provider_options = []
-        for name, available in available_providers.items():
-            if available:
-                provider_options.append(f"{name} ✅")
-            else:
-                provider_options.append(f"{name} ❌")
+        # Predefined Norwegian electricity websites
+        default_urls = [
+            "https://www.bytt.no/strom/strompriser/oslo",
+            "https://www.fjordkraft.no/privat/strom",
+            "https://tibber.com/no/priser",
+            "https://www.forbrukerradet.no/strompris/",
+            "https://www.lyse.no/strom/stromavtaler",
+            "https://www.agderenergi.no/privat/strom/stromavtaler",
+            "https://www.komplett.no/category/stromavtaler"
+        ]
         
-        if provider_options:
-            selected_provider_display = st.selectbox("Select AI Provider:", provider_options)
-            selected_provider = selected_provider_display.split(" ")[0]
+        selected_default = st.selectbox("Select a Norwegian electricity website:", 
+                                      ["Custom URL"] + default_urls)
+        
+        if selected_default == "Custom URL":
+            custom_url = st.text_input("Electricity prices URL:", 
+                                     "https://www.bytt.no/strom/strompriser/oslo")
         else:
-            st.error("No AI providers available!")
-            selected_provider = "mock"
-        
-        def get_selected_provider():
-            if not available_providers.get(selected_provider, False):
-                st.warning(f"{selected_provider} API key missing!")
-                return MockProviderBase(selected_provider)
-            return get_provider_by_name(selected_provider)
-        
-        # Search inputs
-        col1, col2 = st.columns([3, 1])
-        with col1:
-            query = st.text_input("Search query:", "electricity prices Oslo Norway")
-        with col2:
-            region = st.selectbox("Region:", ["no", "se", "dk", "us", "uk"])
-        
-        # Search execution
-        search_keys_valid = bool(config.BING_API_KEY or config.GOOGLE_API_KEY)
-        
-        if not search_keys_valid:
-            st.error("Search API keys missing! Set BING_API_KEY or GOOGLE_API_KEY")
-        
-        if st.button("🔍 Search & Analyze", disabled=not search_keys_valid):
-            with st.spinner("Searching and analyzing..."):
-                provider = get_selected_provider()
-                st.info(f"Using AI Provider: {selected_provider}")
-                
-                # Multi-source search
-                links = multi_search(query, region)
-                st.write(f"Found {len(links)} search results")
-                
-                if links:
-                    all_results = []
-                    
-                    # Process top 3 links
-                    for i, url in enumerate(links[:3]):
-                        st.write(f"Processing {i+1}/{min(3, len(links))}: {url}")
-                        
-                        html = fetch_page_multi_method(url)  # SYNC CALL - NO AWAIT
-                        if html:
-                            st.write(f"✅ Fetched {len(html)} chars")
-                            
-                            # Extract structured data
-                            results = extract_structured_data_ai(query, html, provider)  # SYNC CALL
-                            if results:
-                                # Add source URL to results
-                                for result in results:
-                                    if isinstance(result, dict):
-                                        result['source_url'] = url
-                                all_results.extend(results)
-                        else:
-                            st.write("❌ Failed to fetch content")
-                    
-                    if all_results:
-                        st.subheader("📊 Extracted Data")
-                        
-                        # Filter out errors for display
-                        valid_results = [r for r in all_results if not r.get('error')]
-                        error_results = [r for r in all_results if r.get('error')]
-                        
-                        if valid_results:
-                            st.json(valid_results)
-                            
-                            # Add to FAISS
-                            faiss_manager.add_documents(valid_results)
-                            st.success(f"Added {len(valid_results)} results to FAISS index!")
-                        
-                        if error_results:
-                            st.subheader("⚠️ Processing Errors")
-                            st.json(error_results)
-                    else:
-                        st.warning("No structured data extracted")
-                else:
-                    st.warning("No search results found")
-    
-    with tab2:
-        st.header("⚡ Norwegian Power Prices")
-        
-        custom_url = st.text_input(
-            "Electricity prices URL:", 
-            "https://www.bytt.no/strom/strompriser/oslo"
-        )
+            custom_url = selected_default
+            st.info(f"Using: {custom_url}")
         
         provider_name = st.selectbox("AI Provider for analysis:", list(available_providers.keys()))
         
-        if st.button("⚡ Analyze Power Prices"):
+        # Debug options
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            show_extraction_debug = st.checkbox("Show extraction debug")
+        with col2:
+            show_raw_text = st.checkbox("Show raw text sample")
+        with col3:
+            show_patterns = st.checkbox("Show found patterns") 
+        with col4:
+            show_comprehensive_data = st.checkbox("Show comprehensive data")
+        
+        if st.button("⚡ Analyze Norwegian Power Prices (Enhanced)"):
             if not available_providers.get(provider_name, False):
                 st.error(f"{provider_name} API key missing!")
             else:
-                with st.spinner("Analyzing power prices..."):
+                with st.spinner("Analyzing Norwegian power prices with enhanced extraction..."):
                     provider = get_provider_by_name(provider_name)
                     st.info(f"Using AI Provider: {provider_name}")
                     
                     # Fetch content
-                    html = fetch_page_multi_method(custom_url)  # SYNC CALL - NO AWAIT
+                    html = fetch_page_multi_method(custom_url)
                     
                     if html:
                         st.success(f"✅ Fetched {len(html)} characters")
                         
-                        # Show extraction debug info
-                        if st.checkbox("Show debug info"):
-                            extracted = extract_tables_comprehensive(html)
-                            st.write("Extraction debug:", extracted.get("debug"))
+                        # Enhanced Norwegian extraction
+                        extracted = extract_norwegian_electricity_data_comprehensive(html)
+                        
+                        # Show debug information
+                        if show_extraction_debug:
+                            st.subheader("🔍 Enhanced Extraction Debug")
+                            st.write(extracted.get("debug"))
+                            st.write(f"Found providers: {extracted.get('found_providers')}")
+                        
+                        if show_raw_text:
+                            st.subheader("📝 Raw Text Sample")
+                            soup = BeautifulSoup(html, "html.parser")
+                            text_content = soup.get_text()
+                            st.text(text_content[:2000])
+                        
+                        if show_patterns:
+                            st.subheader("🔍 Found Price Patterns")
+                            prices = extracted.get("prices", [])
+                            if prices:
+                                for i, pattern in enumerate(prices[:15]):
+                                    st.write(f"Pattern {i+1}: {pattern}")
+                            else:
+                                st.write("No price patterns found")
+                        
+                        if show_comprehensive_data:
+                            st.subheader("📊 Comprehensive Extraction Data")
                             
-                            if extracted["tables"]:
-                                st.subheader("📊 Extracted Tables")
-                                for i, table in enumerate(extracted["tables"]):
-                                    with st.expander(f"Table {i+1} ({table.get('type')})"):
-                                        if 'rows' in table:
-                                            st.json(table['rows'][:5])
+                            # Text prices
+                            text_prices = extracted.get("text_prices", [])
+                            if text_prices:
+                                st.write("**Text-based prices:**")
+                                for i, tp in enumerate(text_prices[:10]):
+                                    st.write(f"{i+1}. {tp}")
+                            
+                            # Structured data
+                            structured_data = extracted.get("structured_data", [])
+                            if structured_data:
+                                st.write("**Structured data:**")
+                                st.json(structured_data)
                         
-                        # AI analysis
-                        specific_query = "Extract Norwegian electricity prices for 16000 kWh yearly consumption, spot prices, no binding period, post-payment billing"
-                        results = extract_structured_data_ai(specific_query, html, provider)  # SYNC CALL
+                        # Show extracted tables
+                        tables = extracted.get("tables", [])
+                        if tables:
+                            st.subheader("📊 Extracted Tables")
+                            for i, table in enumerate(tables):
+                                price_rows = table.get("price_row_count", 0)
+                                with st.expander(f"Table {i+1} - {len(table.get('rows', []))} rows ({price_rows} with prices)"):
+                                    if table.get("headers"):
+                                        st.write("Headers:", table["headers"])
+                                    # Show only price-containing rows
+                                    price_rows_data = [row for row in table.get("rows", []) if row.get("contains_prices")]
+                                    if price_rows_data:
+                                        st.write("Price rows:")
+                                        st.json(price_rows_data[:5])
+                                    else:
+                                        st.write("All rows:")
+                                        st.json(table['rows'][:5])
                         
-                        st.subheader("⚡ Structured Power Price Results")
+                        # Enhanced AI analysis
+                        specific_query = "Extract Norwegian electricity prices for residential customers, including monthly fees and kWh prices"
+                        results = extract_structured_data_ai_enhanced(specific_query, html, provider)
+                        
+                        st.subheader("⚡ Enhanced Structured Power Price Results")
                         st.json(results)
                         
                         # Add to FAISS if valid results
                         valid_results = [r for r in results if not r.get('error')]
-                        if valid_results:
+                        if valid_results and faiss_manager:
                             faiss_manager.add_documents(valid_results)
-                            st.success("Results added to FAISS index!")
+                            st.success(f"Added {len(valid_results)} results to FAISS index!")
+                        elif not valid_results:
+                            # Show what we actually extracted
+                            st.warning("No valid structured results from AI, but showing raw extraction data:")
+                            
+                            extraction_summary = {
+                                "providers_found": extracted.get('found_providers'),
+                                "price_patterns_count": len(extracted.get('prices', [])),
+                                "text_prices_count": len(extracted.get('text_prices', [])),
+                                "tables_with_prices": len([t for t in extracted.get('tables', []) if t.get('price_row_count', 0) > 0])
+                            }
+                            st.json(extraction_summary)
+                            
+                            # Try to add extraction summary to FAISS
+                            if faiss_manager and extraction_summary.get('providers_found'):
+                                faiss_manager.add_documents([extraction_summary])
+                                st.info("Added extraction summary to FAISS index")
                     else:
                         st.error("❌ Could not fetch content from URL")
     
-    with tab3:
-        st.header("🏢 Company Search & Reviews")
-        
-        # Sample companies
-        sample_companies = [
-            {"id": 1, "name": "Fjordkraft", "industry": "Energy", "rating": 4.2},
-            {"id": 2, "name": "Tibber", "industry": "Energy", "rating": 4.5},
-            {"id": 3, "name": "Lyse Energi", "industry": "Energy", "rating": 4.0},
-            {"id": 4, "name": "Hafslund Strøm", "industry": "Energy", "rating": 3.8},
-            {"id": 5, "name": "TechCorp AS", "industry": "Technology", "rating": 4.3},
-        ]
-        
-        search_engine.add_company_data(sample_companies)
-        
-        # Search interface
-        search_query = st.text_input("🔍 Search companies:", "")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            industry_filter = st.text_input("Industry filter:", "")
-        with col2:
-            min_rating = st.slider("Minimum rating:", 0.0, 5.0, 0.0)
-        
-        if search_query:
-            filters = {}
-            if industry_filter:
-                filters['industry'] = industry_filter
-            if min_rating > 0:
-                filters['min_rating'] = min_rating
-            
-            results = search_engine.advanced_search(search_query, filters)
-            
-            if results:
-                st.subheader("🏢 Search Results")
-                for industry, companies in results.items():
-                    st.write(f"**{industry}** ({len(companies)} companies)")
-                    
-                    for company in companies:
-                        col1, col2, col3 = st.columns([3, 1, 1])
-                        
-                        with col1:
-                            st.markdown(f"**{company.get('highlighted_name', company.get('name'))}**")
-                        with col2:
-                            st.metric("Rating", f"{company.get('rating', 0):.1f}/5")
-                        with col3:
-                            st.metric("Match", f"{company.get('search_score', 0):.0%}")
-                        
-                        st.divider()
-    
-    with tab4:
+    with tab2:
         st.header("📊 FAISS Vector Search")
         
-        search_query = st.text_input("Search in FAISS index:", "cheap electricity Oslo")
+        if not faiss_manager:
+            st.error("FAISS manager not available. Check SentenceTransformer installation.")
+            return
+        
+        search_query = st.text_input("Search in FAISS index:", "cheap electricity Oslo spot price monthly fee")
         top_k = st.slider("Number of results:", 1, 20, 5)
         
         if st.button("🔍 Search FAISS"):
@@ -968,8 +1026,11 @@ def main():
         
         # FAISS statistics
         st.subheader("📈 FAISS Index Statistics")
-        st.write(f"Total vectors: {faiss_manager.index.ntotal}")
-        st.write(f"Index dimension: {faiss_manager.dim}")
+        if faiss_manager:
+            st.write(f"Total vectors: {faiss_manager.index.ntotal}")
+            st.write(f"Index dimension: {faiss_manager.dim}")
+        else:
+            st.write("FAISS not available")
 
 if __name__ == "__main__":
     main()
