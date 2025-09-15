@@ -321,3 +321,5 @@ yarl==1.20.0
 zipp==3.23.0
 zope.interface==7.2
 zstandard==0.23.0
+selenium
+requests-html
