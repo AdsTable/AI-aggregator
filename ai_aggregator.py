@@ -424,42 +424,77 @@ def extract_norwegian_electricity_data_comprehensive(html: str) -> dict:
         if provider in full_text.lower():
             found_providers.append(provider)
     
-    # Strategy 2: Ultra-comprehensive price pattern extraction
+    # Strategy 2: Norwegian electricity-specific terms and patterns
+    norwegian_electricity_terms = [
+        # Pricing terms
+        "påslag", "strømpris", "nettleie", "kraftpris", "spotpris", "fastpris", "variabel pris",
+        "månedspris", "pris pr. mnd", "abonnement", "månedsabonnement", "grunnpris", "fastbeløp",
+        
+        # Contract terms  
+        "bindingstid", "ingen binding", "binding", "avtaletype", "spotavtale", "fastavtale",
+        "variabel avtale", "kontrakt", "avtaleperiode",
+        
+        # Consumption terms
+        "forbruk", "årsforbruk", "månedlig forbruk", "kwh per år", "kwh/år", "strømforbruk",
+        "energiforbruk", "normalforbruk", "husstandsforbruk",
+        
+        # Billing terms
+        "fakturering", "forhåndsbetaling", "etterrebetaling", "terminregning", "avregning",
+        "depot", "forskudd", "faktura",
+        
+        # Geographic terms
+        "elområde", "prisområde", "no1", "no2", "no3", "no4", "no5", "oslo", "bergen", 
+        "stavanger", "trondheim", "tromsø", "kristiansand", "drammen",
+        
+        # Additional pricing components
+        "elavgift", "moms", "merverdiavgift", "nettleie", "elsertifikat", "forsyningsavgift"
+    ]
+    
+    # Strategy 3: Ultra-comprehensive price pattern extraction with Norwegian terms
     price_patterns = [
-        # Provider with specific prices - simplified pattern
+        # Provider with specific prices - major providers
         r'(tibber|fjordkraft|hafslund|lyse|agder|elvia|tensio|komplett|nordpool|otovo|eidsiva|bkk|trønder|vardar|fortum|polar kraft|saga energi|cheap energy|wattn|vibb)[^0-9]*?(\d+[.,]\d*)\s*(?:kr|øre)',
         
-        # Monthly prices
-        r'(\w+(?:\s+\w+)*)\s*[:\-]?\s*(\d+[.,]\d*)\s*kr[^0-9]*?(?:mnd|måned|per måned|månedlig|abonnement)',
-        r'månedspris[:\s]*(\d+[.,]\d*)\s*kr',
-        r'månedsabonnement[:\s]*(\d+[.,]\d*)\s*kr',
-        r'abonnement[:\s]*(\d+[.,]\d*)\s*kr',
+        # Norwegian pricing terms with amounts
+        r'påslag[:\s]*[−\-]?(\d+[.,]\d*)\s*øre',  # Påslag: −1,40 øre
+        r'pris pr\.?\s*mnd[:\s]*(\d+[.,]\d*)\s*kr',  # pris pr. mnd: 29 kr
+        r'månedspris[:\s]*(\d+[.,]\d*)\s*kr',  # månedspris: 39 kr
+        r'månedsabonnement[:\s]*(\d+[.,]\d*)\s*kr',  # månedsabonnement: 49 kr
+        r'abonnement[:\s]*(\d+[.,]\d*)\s*kr',  # abonnement: 29 kr
+        r'grunnpris[:\s]*(\d+[.,]\d*)\s*kr',  # grunnpris: 35 kr
+        r'fastbeløp[:\s]*(\d+[.,]\d*)\s*kr',  # fastbeløp: 45 kr
         
-        # kWh prices  
+        # Spot and fixed prices
+        r'spotpris[:\s]*[+]?(\d+[.,]\d*)\s*øre',  # spotpris: +2,5 øre
+        r'fastpris[:\s]*(\d+[.,]\d*)\s*øre',  # fastpris: 95,5 øre
+        r'strømpris[:\s]*(\d+[.,]\d*)\s*øre',  # strømpris: 89,2 øre
+        r'kraftpris[:\s]*(\d+[.,]\d*)\s*øre',  # kraftpris: 87,1 øre
+        
+        # Contract and consumption patterns
+        r'(\d+)\s*kwh/år[:\s]*(\d+[.,]\d*)\s*kr',  # 16000 kWh/år: 1234 kr
+        r'årsforbruk\s*(\d+)\s*kwh[:\s]*(\d+[.,]\d*)\s*kr',  # årsforbruk 20000 kWh: 2345 kr
+        
+        # Binding period patterns
+        r'bindingstid[:\s]*(\d+)\s*måned',  # bindingstid: 12 måneder
+        r'ingen binding[:\s]*(\d+[.,]\d*)\s*(?:kr|øre)',  # ingen binding: 29 kr
+        
+        # Geographic pricing
+        r'(oslo|bergen|stavanger|trondheim|tromsø|kristiansand|no1|no2|no3|no4|no5)[:\s]*(\d+[.,]\d*)\s*(?:kr|øre)',
+        
+        # General price patterns with Norwegian context
+        r'(\w+(?:\s+\w+)*)\s*[:\-]?\s*(\d+[.,]\d*)\s*kr[^0-9]*?(?:mnd|måned|per måned|månedlig)',
         r'(\w+(?:\s+\w+)*)\s*[:\-]?\s*(\d+[.,]\d*)\s*øre[^0-9]*?(?:kwh|kWh)',
-        r'spotpris[:\s]*(\d+[.,]\d*)\s*øre',
-        r'fastpris[:\s]*(\d+[.,]\d*)\s*øre',
-        r'påslag[:\s]*(\d+[.,]\d*)\s*øre',
-        r'strømpris[:\s]*(\d+[.,]\d*)\s*øre',
-        
-        # General price patterns
-        r'(\w+(?:\s+\w+)*)\s+(\d+[.,]\d*)\s*kr',
-        r'(\w+(?:\s+\w+)*)\s+(\d+[.,]\d*)\s*øre',
-        r'pris[:\s]*(\d+[.,]\d*)\s*(?:kr|øre)',
         
         # Table-like structured data
-        r'(\w+(?:\s+\w+)*)\s+(\d+[.,]\d*)\s+(\d+[.,]\d*)',  # Provider Price1 Price2
         r'(\w+(?:\s+\w+)*)\s+(\d+[.,]\d*)\s*kr\s+(\d+[.,]\d*)\s*øre',  # Provider XX kr YY øre
+        r'(\w+(?:\s+\w+)*)\s+(\d+[.,]\d*)\s+(\d+[.,]\d*)',  # Provider Price1 Price2
         
-        # Spot price specific
-        r'(\w+(?:\s+\w+)*)\s*spot[^0-9]*?(\d+[.,]\d*)',
-        r'(\w+(?:\s+\w+)*)\s*fast[^0-9]*?(\d+[.,]\d*)',
+        # Special Norwegian pricing patterns
+        r'(\d+[.,]\d*)\s*kr.*?(?:måned|mnd|abonnement)',  # XX kr per måned
+        r'(\d+[.,]\d*)\s*øre.*?(?:kwh|kWh|spot|fast)',  # XX øre per kWh
+        r'[+\-](\d+[.,]\d*)\s*øre.*?påslag',  # +2,5 øre påslag
         
-        # Numbers followed by currency
-        r'(\d+[.,]\d*)\s*kr.*?(?:måned|mnd)',
-        r'(\d+[.,]\d*)\s*øre.*?(?:kwh|kWh)',
-        
-        # More general patterns
+        # Provider names with pricing
         r'([A-ZÆØÅ][a-zæøå]+(?:\s+[A-ZÆØÅ][a-zæøå]+)*)\s*[:.]?\s*(\d+[.,]\d*)\s*kr',
         r'([A-ZÆØÅ][a-zæøå]+(?:\s+[A-ZÆØÅ][a-zæøå]+)*)\s*[:.]?\s*(\d+[.,]\d*)\s*øre',
     ]
@@ -478,20 +513,33 @@ def extract_norwegian_electricity_data_comprehensive(html: str) -> dict:
             logger.warning(f"Regex pattern error: {e}")
             continue
     
-    # Strategy 3: Enhanced HTML table extraction
+    # Strategy 4: Enhanced HTML table extraction with Norwegian column recognition
     tables = soup.find_all("table")
+    norwegian_column_headers = [
+        "leverandør", "tilbyder", "selskap", "firma", "pris", "månedspris", "spotpris", 
+        "fastpris", "påslag", "binding", "bindingstid", "abonnement", "grunnpris",
+        "strømpris", "kraftpris", "kwh", "forbruk", "årsforbruk", "område", "elområde"
+    ]
+    
     for i, table in enumerate(tables):
         table_data = {"type": "html_table", "headers": [], "rows": []}
         
-        # Extract headers
+        # Extract headers and check for Norwegian electricity terms
         header_row = table.find("tr")
         headers = []
+        norwegian_headers_found = 0
+        
         if header_row:
             header_cells = header_row.find_all(["th", "td"])
             if header_cells:
                 headers = [cell.get_text(strip=True) for cell in header_cells]
+                # Count Norwegian electricity-related headers
+                for header in headers:
+                    if any(term in header.lower() for term in norwegian_column_headers):
+                        norwegian_headers_found += 1
         
         table_data["headers"] = headers
+        table_data["norwegian_headers_count"] = norwegian_headers_found
         
         # Extract all rows
         rows = []
@@ -503,57 +551,78 @@ def extract_norwegian_electricity_data_comprehensive(html: str) -> dict:
             if cells:
                 row_data = [cell.get_text(strip=True) for cell in cells]
                 if any(cell for cell in row_data):
-                    # Check if row contains price data
+                    # Check if row contains price data or Norwegian terms
                     row_text = " ".join(row_data).lower()
-                    if any(word in row_text for word in ["kr", "øre", "pris", "mnd", "spot", "fast"]):
-                        rows.append({"data": row_data, "contains_prices": True})
-                    else:
-                        rows.append({"data": row_data, "contains_prices": False})
+                    contains_prices = any(word in row_text for word in ["kr", "øre", "pris"])
+                    contains_norwegian_terms = any(term in row_text for term in norwegian_electricity_terms)
+                    
+                    rows.append({
+                        "data": row_data, 
+                        "contains_prices": contains_prices,
+                        "contains_norwegian_terms": contains_norwegian_terms
+                    })
         
-        if rows:
+        if rows and (norwegian_headers_found > 0 or any(row.get("contains_norwegian_terms") for row in rows)):
             table_data["rows"] = rows
-            # Count price-containing rows
+            # Count relevant rows
             price_rows = sum(1 for row in rows if row.get("contains_prices", False))
+            norwegian_rows = sum(1 for row in rows if row.get("contains_norwegian_terms", False))
             table_data["price_row_count"] = price_rows
+            table_data["norwegian_row_count"] = norwegian_rows
             all_data.append(table_data)
     
-    # Strategy 4: Structured sections and divs
+    # Strategy 5: Norwegian electricity-specific sections
     price_sections = soup.find_all(["div", "section", "article"], 
-                                   class_=re.compile(r"price|pris|tilbud|sammenlign|compare|offer|tariff|plan", re.I))
+                                   class_=re.compile(r"price|pris|tilbud|sammenlign|compare|offer|tariff|plan|strøm|elektrisitet", re.I))
     
     for section in price_sections:
         section_text = section.get_text()
         
-        # Look for price patterns in this section
-        for pattern in price_patterns[:5]:  # Use top 5 patterns
-            try:
-                matches = re.findall(pattern, section_text, re.IGNORECASE)
-                for match in matches:
-                    if isinstance(match, tuple) and len(match) >= 1:
-                        all_prices.append({
-                            "type": "section_match",
-                            "data": list(match),
-                            "section_class": section.get("class", [])
-                        })
-            except re.error:
-                continue
+        # Look for Norwegian electricity terms in this section
+        norwegian_terms_found = []
+        for term in norwegian_electricity_terms:
+            if term in section_text.lower():
+                norwegian_terms_found.append(term)
+        
+        if norwegian_terms_found:
+            # Look for price patterns in this section
+            for pattern in price_patterns[:10]:  # Use top patterns
+                try:
+                    matches = re.findall(pattern, section_text, re.IGNORECASE)
+                    for match in matches:
+                        if isinstance(match, tuple) and len(match) >= 1:
+                            all_prices.append({
+                                "type": "section_match",
+                                "data": list(match),
+                                "section_class": section.get("class", []),
+                                "norwegian_terms": norwegian_terms_found[:5]  # Top 5 terms found
+                            })
+                except re.error:
+                    continue
     
-    # Strategy 5: Text-based price extraction (line by line)
+    # Strategy 6: Text-based price extraction with Norwegian context (line by line)
     lines = full_text.split('\n')
     for line in lines:
         line = line.strip()
-        if len(line) < 5 or len(line) > 200:  # Skip very short or very long lines
+        if len(line) < 5 or len(line) > 200:
             continue
         
-        # Look for price mentions
-        if any(word in line.lower() for word in ["kr", "øre", "pris"]):
+        # Look for Norwegian electricity terms and prices in the same line
+        line_lower = line.lower()
+        has_norwegian_terms = any(term in line_lower for term in norwegian_electricity_terms)
+        has_prices = any(word in line_lower for word in ["kr", "øre", "pris"])
+        
+        if has_norwegian_terms and has_prices:
+            # Extract specific Norwegian terms found
+            terms_found = [term for term in norwegian_electricity_terms if term in line_lower]
+            
             # Extract any numbers followed by kr or øre
-            price_matches = re.findall(r'(\d+[.,]\d*)\s*(?:kr|øre)', line, re.I)
+            price_matches = re.findall(r'([+\-]?\d+[.,]\d*)\s*(?:kr|øre)', line, re.I)
             if price_matches:
                 # Try to find provider name in the same line
                 provider_match = None
                 for provider in norwegian_providers:
-                    if provider in line.lower():
+                    if provider in line_lower:
                         provider_match = provider
                         break
                 
@@ -566,13 +635,14 @@ def extract_norwegian_electricity_data_comprehensive(html: str) -> dict:
                             break
                 
                 text_prices.append({
-                    "type": "text_line",
+                    "type": "text_line_norwegian",
                     "line": line,
                     "prices": price_matches,
-                    "provider": provider_match
+                    "provider": provider_match,
+                    "norwegian_terms": terms_found[:3]  # Top 3 terms
                 })
     
-    # Strategy 6: JSON-LD structured data
+    # Strategy 7: JSON-LD structured data
     scripts = soup.find_all("script", type="application/ld+json")
     structured_data = []
     for script in scripts:
@@ -590,9 +660,187 @@ def extract_norwegian_electricity_data_comprehensive(html: str) -> dict:
         "text_prices": text_prices,
         "found_providers": found_providers,
         "structured_data": structured_data,
+        "norwegian_terms_detected": list(set([term for term in norwegian_electricity_terms if term in full_text.lower()])),
         "debug": f"Found {len(all_data)} tables, {len(all_prices)} price patterns, {len(text_prices)} text prices, {len(found_providers)} providers, {len(structured_data)} structured data"
     }
 
+# ...existing code...
+
+def extract_structured_data_ai_enhanced(query: str, html: str, provider: AIProvider) -> list:
+    """Enhanced AI extraction with comprehensive data preprocessing and Norwegian terms"""
+    
+    # Use comprehensive Norwegian electricity extractor
+    extracted = extract_norwegian_electricity_data_comprehensive(html)
+    tables = extracted["tables"]
+    prices = extracted["prices"]
+    text_prices = extracted["text_prices"]
+    found_providers = extracted["found_providers"]
+    structured_data = extracted["structured_data"]
+    norwegian_terms = extracted["norwegian_terms_detected"]
+    
+    # Create sample of raw text focusing on price-related content
+    soup = BeautifulSoup(html, "html.parser")
+    full_text = soup.get_text()
+    
+    # Extract Norwegian electricity-related paragraphs
+    price_paragraphs = []
+    norwegian_electricity_keywords = ["påslag", "spotpris", "fastpris", "månedspris", "pris pr. mnd", "abonnement", "bindingstid", "ingen binding", "kwh", "øre", "kr"]
+    
+    for paragraph in full_text.split('\n'):
+        paragraph = paragraph.strip()
+        if paragraph and any(keyword in paragraph.lower() for keyword in norwegian_electricity_keywords):
+            price_paragraphs.append(paragraph)
+    
+    # Enhanced prompt with Norwegian electricity context
+    prompt = f"""
+Analyze this Norwegian electricity pricing data. Extract structured pricing information in JSON format.
+
+QUERY: {query}
+
+FOUND PROVIDERS: {found_providers}
+
+NORWEGIAN ELECTRICITY TERMS DETECTED: {norwegian_terms}
+
+EXTRACTED PRICE PATTERNS:
+{json.dumps(prices[:15], ensure_ascii=False, indent=2)}
+
+TEXT-BASED PRICES WITH NORWEGIAN CONTEXT:
+{json.dumps(text_prices[:10], ensure_ascii=False, indent=2)}
+
+NORWEGIAN ELECTRICITY PRICE PARAGRAPHS:
+{chr(10).join(price_paragraphs[:15])}
+
+EXTRACTED TABLES WITH NORWEGIAN HEADERS:
+{json.dumps([{{"type": t.get("type"), "headers": t.get("headers"), "norwegian_headers": t.get("norwegian_headers_count", 0), "price_rows": t.get("price_row_count", 0)}} for t in tables], ensure_ascii=False, indent=2)}
+
+NORWEGIAN ELECTRICITY TERMINOLOGY GUIDE:
+- påslag = markup/surcharge (e.g., "Påslag: −1,40 øre")
+- pris pr. mnd = price per month (e.g., "pris pr. mnd: 29 kr")
+- månedspris = monthly price
+- månedsabonnement = monthly subscription
+- spotpris = spot price
+- fastpris = fixed price
+- bindingstid = binding period
+- ingen binding = no binding
+- strømpris = electricity price
+- kraftpris = power price
+- årsforbruk = annual consumption
+- elområde = electricity area (NO1, NO2, etc.)
+
+Based on this data, extract Norwegian electricity pricing information in this EXACT JSON format:
+[
+  {{
+    "provider": "company name (e.g., Tibber, Fjordkraft, Hafslund)",
+    "price_monthly": "monthly price (pris pr. mnd) in NOK (e.g., '29 kr', '39 kr')",
+    "price_kwh": "price per kWh in øre (e.g., '95.5 øre', '105 øre')",
+    "paslag": "påslag/markup if found (e.g., '−1,40 øre', '+2,5 øre')",
+    "contract_type": "spot/fast/variabel",
+    "binding_period": "bindingstid (e.g., 'ingen binding', '12 måneder')",
+    "consumption_kwh": "årsforbruk if specified (e.g., '16000 kWh/år')",
+    "electricity_area": "elområde if specified (e.g., 'NO1', 'Oslo')",
+    "additional_info": "any other Norwegian pricing terms found"
+  }}
+]
+
+IMPORTANT INSTRUCTIONS:
+1. Focus on Norwegian electricity terminology
+2. Extract påslag (markup) values - they can be negative (−1,40 øre)
+3. Look for "pris pr. mnd" or "månedspris" for monthly costs
+4. Extract spotpris and fastpris separately
+5. Include bindingstid (binding period) information
+6. Even partial information is valuable
+7. Pay attention to Norwegian currency format (comma as decimal separator)
+
+If you find ANY Norwegian electricity pricing data, return it. 
+If completely no pricing data found, return:
+[{{"error": "No Norwegian electricity pricing data found", "norwegian_terms_found": {norwegian_terms}, "analysis": "describe what you found instead"}}]
+"""
+    
+    result_text = run_async(provider.chat(prompt))
+    
+    try:
+        # Clean up the response text
+        result_text = result_text.strip()
+        
+        # Try to find JSON in the response
+        json_matches = re.findall(r'\[.*?\]', result_text, re.DOTALL)
+        if json_matches:
+            for json_match in json_matches:
+                try:
+                    structured_json = json.loads(json_match)
+                    if isinstance(structured_json, list) and structured_json:
+                        return structured_json
+                except:
+                    continue
+        
+        # Try to parse the entire response as JSON
+        structured_json = json.loads(result_text)
+        if isinstance(structured_json, list):
+            return structured_json
+        else:
+            return [structured_json]
+            
+    except json.JSONDecodeError:
+        # Enhanced fallback with Norwegian terms
+        logger.error(f"JSON parsing failed for response: {result_text[:500]}")
+        
+        # Fall back to our own extractions with Norwegian context
+        fallback_results = []
+        
+        # Process Norwegian price patterns
+        processed_providers = set()
+        for price_data in prices[:15]:
+            if price_data.get("type") in ["regex_match", "section_match"] and len(price_data.get("data", [])) >= 2:
+                provider = price_data["data"][0].strip().title()
+                price_info = " ".join(price_data["data"][1:])
+                
+                if provider not in processed_providers and len(provider) > 2:
+                    processed_providers.add(provider)
+                    result = {
+                        "provider": provider,
+                        "price_info": price_info,
+                        "source": "norwegian_pattern_extraction",
+                        "raw_data": price_data["data"]
+                    }
+                    
+                    # Add Norwegian terms if found in section match
+                    if price_data.get("norwegian_terms"):
+                        result["norwegian_terms"] = price_data["norwegian_terms"]
+                    
+                    fallback_results.append(result)
+        
+        # Process Norwegian text prices
+        for text_price in text_prices[:10]:
+            provider = text_price.get("provider")
+            if provider and provider not in processed_providers and len(provider) > 2:
+                processed_providers.add(provider)
+                result = {
+                    "provider": provider.title(),
+                    "prices_found": text_price.get("prices", []),
+                    "source": "norwegian_text_extraction",
+                    "line": text_price.get("line", "")[:100]
+                }
+                
+                # Add Norwegian terms context
+                if text_price.get("norwegian_terms"):
+                    result["norwegian_terms"] = text_price["norwegian_terms"]
+                
+                fallback_results.append(result)
+        
+        if fallback_results:
+            return fallback_results
+        
+        return [{
+            "error": "AI response parsing failed", 
+            "raw_response": result_text[:1000], 
+            "extraction_debug": extracted["debug"],
+            "fallback_data": {
+                "providers_found": found_providers,
+                "norwegian_terms_detected": norwegian_terms,
+                "price_patterns_count": len(prices),
+                "text_prices_count": len(text_prices)
+            }
+        }]
 # -------------------- AI PROCESSING (SYNC) --------------------
 def run_async(coro):
     """Helper to run async functions in sync context"""
